@@ -82,9 +82,10 @@ impl TreasuryContract {
         balance = balance
             .checked_sub(amount)
             .ok_or(TreasuryError::ArithmeticOverflow)?;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Balance(to.clone(), token_contract.clone()), &balance);
+        env.storage().persistent().set(
+            &DataKey::Balance(to.clone(), token_contract.clone()),
+            &balance,
+        );
         let treasury = env.current_contract_address();
         let token_client = token::Client::new(&env, &token_contract);
         token_client.transfer(&treasury, &to, &amount);
@@ -136,7 +137,12 @@ impl TreasuryContract {
     }
 }
 
-fn deposit_one(env: &Env, from: &Address, token_contract: &Address, amount: i128) -> Result<(), TreasuryError> {
+fn deposit_one(
+    env: &Env,
+    from: &Address,
+    token_contract: &Address,
+    amount: i128,
+) -> Result<(), TreasuryError> {
     if amount <= 0 {
         return Err(TreasuryError::InvalidAmount);
     }
@@ -151,9 +157,10 @@ fn deposit_one(env: &Env, from: &Address, token_contract: &Address, amount: i128
     balance = balance
         .checked_add(amount)
         .ok_or(TreasuryError::ArithmeticOverflow)?;
-    env.storage()
-        .persistent()
-        .set(&DataKey::Balance(from.clone(), token_contract.clone()), &balance);
+    env.storage().persistent().set(
+        &DataKey::Balance(from.clone(), token_contract.clone()),
+        &balance,
+    );
     env.events()
         .publish((Symbol::new(env, "deposit"), from.clone()), amount);
     Ok(())

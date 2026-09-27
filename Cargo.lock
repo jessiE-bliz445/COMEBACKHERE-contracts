@@ -328,6 +328,7 @@ version = "1.0.0"
 dependencies = [
  "comebackhere-compliance",
  "comebackhere-compliance-client",
+ "comebackhere-multisig",
  "comebackhere-treasury",
  "soroban-sdk",
 ]

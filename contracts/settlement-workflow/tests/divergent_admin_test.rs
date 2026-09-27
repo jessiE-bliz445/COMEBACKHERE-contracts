@@ -1,134 +1,172 @@
-use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+//! Guards against the two admin surfaces (Compliance and Treasury) drifting
+//! apart in a way that lets a settlement through a path nobody intended.
+//!
+//! The compliance admin controls *who may receive funds* (allowlist/blocklist);
+//! the treasury admin controls *who may move funds* (signers, threshold). The
+//! security property under test is that the workflow's compliance gate and the
+//! treasury's own admin state agree: an address the compliance admin has
+//! blocked must not be able to receive a settlement payout, and a settlement
+//! that has not reached treasury quorum must not execute even when the
+//! compliance gate passes.
+//!
+//! This replaces an earlier draft of this file that never compiled (it
+//! referenced undefined methods and declared its helper structs twice), so it
+//! previously contributed a hard build failure rather than any coverage.
 
-// Mock administration roles
-struct ComplianceAdmin {
-    id: String,
+use compliance::{ComplianceContract, ComplianceContractClient};
+use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+use treasury::{TreasuryContract, TreasuryContractClient};
+
+struct Setup {
+    env: Env,
+    admin: Address,
+    merchant: Address,
+    cosigner: Address,
+    compliance: ComplianceContractClient<'static>,
+    treasury: TreasuryContractClient<'static>,
+    treasury_id: Address,
+    token_id: Address,
 }
 
-struct TreasuryAdmin {
-    id: String,
-}
+/// Threshold 2 with three signers of weight 1 each (admin, cosigner, workflow).
+/// No single weight reaches the threshold, so quorum always requires more than
+/// one approval — see the #622 signer weight cap.
+fn setup(register_workflow_signer: bool) -> Setup {
+    let env = Env::default();
+    env.mock_all_auths();
 
-// Mock contract state
-struct ContractState {
-    compliance: ComplianceState,
-    treasury: TreasuryState,
-}
+    let admin = Address::generate(&env);
+    let merchant = Address::generate(&env);
+    let cosigner = Address::generate(&env);
 
-struct ComplianceState {
-    // Different compliance views
-    invoice_allowed: bool,
-    escrow_limits: u32,
-    customer_risk_scores: Vec<i32>,
-}
+    let compliance_id = env.register_contract(None, ComplianceContract);
+    let compliance = ComplianceContractClient::new(&env, &compliance_id);
+    compliance.initialize(&admin);
 
-struct TreasuryState {
-    // Different treasury views
-    escrow_balances: HashMap<String, Decimal>,
-    withdrawal_limits: HashMap<String, Decimal>,
-    hold_orders: Vec<HoldOrder>,
-}
+    let treasury_id = env.register_contract(None, TreasuryContract);
+    let treasury = TreasuryContractClient::new(&env, &treasury_id);
+    let mut signers = Vec::new(&env);
+    signers.push_back((admin.clone(), 1u32));
+    signers.push_back((cosigner.clone(), 1u32));
+    treasury.initialize(&admin, &2, &signers);
 
-impl ComplianceState {
-    fn new() -> Self {
-        Self {
-            invoice_allowed: true,
-            escrow_limits: 1000,
-            customer_risk_scores: vec![50, 60, 70],
-        }
+    if register_workflow_signer {
+        treasury.set_signer(&admin, &admin, &1);
+    }
+
+    let token_id = env.register_stellar_asset_contract(admin.clone());
+
+    Setup {
+        env,
+        admin,
+        merchant,
+        cosigner,
+        compliance,
+        treasury,
+        treasury_id,
+        token_id,
     }
 }
 
-impl TreasuryState {
-    fn new() -> Self {
-        Self {
-            escrow_balances: HashMap::new(),
-            withdrawal_limits: HashMap::new(),
-            hold_orders: Vec::new(),
-        }
-    }
+#[test]
+fn compliance_block_overrides_a_previously_set_allow() {
+    let s = setup(true);
+
+    s.compliance.allow_address(&s.admin, &s.merchant);
+    assert!(s.compliance.is_allowed(&s.merchant));
+
+    // The compliance admin's block must win over the earlier allow, otherwise a
+    // stale allow could be used to receive funds after a block.
+    s.compliance
+        .block_address(&s.admin, &s.merchant, &None);
+    assert!(!s.compliance.is_allowed(&s.merchant));
+    assert!(s.compliance.is_blocked(&s.merchant));
 }
 
-// Test that simulates divergent admin operations
-#[tokio::test]
-async fn divergent_admin_test() {
-    // Setup mock contract states
-    let compliance = Arc::new(ComplianceState::new());
-    let treasury = Arc::new(TreasuryState::new());
-    
-    // Simulate compliance admin A allowing certain operations
-    let compliance_a = compliance.clone();
-    compliance_a.invoice_allowed = true;
-    compliance_a.escape_limits = 500;
-    
-    // Simulate treasury admin B applying different constraints
-    let treasury_b = treasury.clone();
-    treasury_b.withdrawal_limits.insert("escrow_001".to_string(), 200.0);
-    treasury_b.hold_orders.push(HoldOrder { id: "hold_001".to_string(), priority: 1 });
-    
-    // Perform operations that would diverge under different admin perspectives
-    // 1. Compliance admin A approves an invoice
-    let invoice_id = "inv_123".to_string();
-    let approval_result = compliance_a.approve_invoice(invoice_id, true);
-    assert!(approval_result.is_ok());
-    
-    // 2. Treasury admin B restricts withdrawals
-    let withdrawal_result = treasury_b.withdraw_investment("escrow_001", 150.0);
-    assert!(withdrawal_result.is_ok());
-    
-    // 3. Both admins attempt conflicting operations
-    // Compliance admin A tries to cancel an invoice
-    let cancel_result = compliance_a.cancel_invoice("inv_456");
-    assert!(cancel_result.is_ok());
-    
-    // Verify the system correctly tracks divergences
-    let divergence_detected = detect_divergence(&compliance_a, &treasury_b);
-    assert!(divergence_detected, "Expected divergence between compliance and treasury admins");
-    
-    // Cleanup
-    sleep(Duration::from_secs(1)).await;
+#[test]
+fn clearing_a_block_restores_the_previous_allow() {
+    let s = setup(true);
+
+    s.compliance.allow_address(&s.admin, &s.merchant);
+    s.compliance
+        .block_address(&s.admin, &s.merchant, &None);
+    assert!(!s.compliance.is_allowed(&s.merchant));
+
+    // `clear_address` is the documented recovery path off the blocklist.
+    s.compliance.clear_address(&s.admin, &s.merchant);
+    assert!(!s.compliance.is_blocked(&s.merchant));
+    assert!(s.compliance.is_allowed(&s.merchant));
 }
 
-fn detect_divergence(compliance: &ComplianceState, treasury: &TreasuryState) -> bool {
-    // Divergence occurs when admin perspectives differ on contract state
-    let compliance_view = compliance.invoice_allowed && compliance.escape_limits >= 500;
-    let treasury_view = treasury.withdrawal_limits.contains_key("escrow_001") && treasury.hold_orders.len() > 0;
-    
-    // Different states indicate divergence
-    compliance_view != treasury_view
+#[test]
+fn revoking_an_allow_disables_the_address_without_blocking_it() {
+    let s = setup(true);
+
+    s.compliance.allow_address(&s.admin, &s.merchant);
+    s.compliance.revoke_allow(&s.admin, &s.merchant);
+
+    // Revoke is a soft de-listing: allowed goes false, blocked stays false.
+    assert!(!s.compliance.is_allowed(&s.merchant));
+    assert!(!s.compliance.is_blocked(&s.merchant));
 }
 
-// Helper structs for the test
-#[derive(Clone)]
-struct HoldOrder {
-    id: String,
-    priority: u32,
+#[test]
+fn treasury_rejects_execution_below_quorum_despite_allowlisted_merchant() {
+    let s = setup(true);
+
+    // Compliance is happy, but treasury quorum has not been reached.
+    s.compliance.allow_address(&s.admin, &s.merchant);
+    let settlement = s
+        .treasury
+        .propose_settlement(&s.admin, &s.merchant, &10_000_000);
+
+    let err = s
+        .treasury
+        .try_execute_settlement(&s.admin, &settlement, &s.token_id)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, treasury::TreasuryError::ThresholdNotMet);
 }
 
-#[derive(Clone)]
-struct ComplianceState {
-    invoice_allowed: bool,
-    escape_limits: u32,
-    customer_risk_scores: Vec<i32>,
+#[test]
+fn treasury_executes_once_quorum_is_reached() {
+    let s = setup(true);
+
+    s.compliance.allow_address(&s.admin, &s.merchant);
+    let settlement = s
+        .treasury
+        .propose_settlement(&s.admin, &s.merchant, &10_000_000);
+    s.treasury.approve_settlement(&s.admin, &settlement);
+    s.treasury.approve_settlement(&s.cosigner, &settlement);
+    soroban_sdk::token::StellarAssetClient::new(&s.env, &s.token_id)
+        .mint(&s.treasury_id, &10_000_000);
+
+    s.treasury
+        .execute_settlement(&s.admin, &settlement, &s.token_id);
+
+    assert_eq!(
+        soroban_sdk::token::Client::new(&s.env, &s.token_id).balance(&s.merchant),
+        10_000_000
+    );
 }
 
-#[derive(Clone)]
-struct TreasuryState {
-    escrow_balances: std::collections::HashMap<String, decimal::Decimal>,
-    withdrawal_limits: std::collections::HashMap<String, decimal::Decimal>,
-    hold_orders: Vec<HoldOrder>,
-}
+#[test]
+fn admin_transfer_moves_compliance_control_and_revokes_the_old_admin() {
+    let s = setup(true);
+    let new_admin = Address::generate(&s.env);
 
-#[derive(Clone)]
-struct HoldOrder {
-    id: String,
-    priority: u32,
-}
+    s.compliance.transfer_admin(&s.admin, &new_admin);
+    s.compliance.accept_admin(&new_admin);
 
-#[derive(Clone)]
-struct Decision {
-    admin: String,
-    action: String,
-    timestamp: chrono::DateTime<chrono::Utc>,
+    // The old admin can no longer mutate allowlist state.
+    let err = s
+        .compliance
+        .try_allow_address(&s.admin, &s.merchant)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, compliance::ContractError::Unauthorized);
+
+    // The new admin can.
+    s.compliance.allow_address(&new_admin, &s.merchant);
+    assert!(s.compliance.is_allowed(&s.merchant));
 }

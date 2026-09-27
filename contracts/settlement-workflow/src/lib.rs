@@ -6,6 +6,10 @@ use soroban_sdk::{
     contract, contractclient, contractimpl, contracttype, Address, Env, Symbol, Vec,
 };
 
+/// Error type returned by `execute_with_compliance`.
+/// Alias for `TreasuryError` to match the naming convention used in tests.
+pub type SettlementWorkflowError = TreasuryError;
+
 /// Cross-contract call surface this crate needs from the treasury contract.
 /// `#[contractclient]` on a bare trait generates only an invocation client, not
 /// a dependency on the `comebackhere-treasury` implementation crate, so this
@@ -18,21 +22,19 @@ pub trait TreasuryInterface {
     fn get_signer_weight(env: Env, signer: Address) -> u32;
 }
 
-/// Storage key for the ordered list of settlement IDs executed through this
-/// workflow contract (as opposed to executed directly against treasury, bypassing
+/// Storage keys for the settlement workflow contract.
+///
+/// `ExecutedSettlements` tracks the ordered list of settlement IDs executed through
+/// this workflow contract (as opposed to executed directly against treasury, bypassing
 /// the compliance gate). See `get_executed_settlement_ids_page` (#373).
-#[contracttype]
-pub enum DataKey {
-    ExecutedSettlements,
-}
-
-/// Instance-storage keys for the workflow's pinned configuration. The compliance
-/// and treasury instances are set once at initialization (#364) so the contract
-/// enforces which instances it trusts rather than trusting whatever a caller
-/// supplies per-call.
+///
+/// `ComplianceId` and `TreasuryId` are the pinned configuration set once at
+/// initialization (#364) so the contract enforces which instances it trusts rather
+/// than trusting whatever a caller supplies per-call.
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
+    ExecutedSettlements,
     ComplianceId,
     TreasuryId,
 }

@@ -76,11 +76,7 @@ impl TreasuryContract {
     /// Errors: `DisputeNotFound`, `DisputeAlreadyResolved`, `DisputeNotExpired`.
     /// Panics: `Unauthorized`.
     /// Emits: `dispute_expired`.
-    pub fn expire_dispute(
-        env: Env,
-        admin: Address,
-        dispute_id: u64,
-    ) -> Result<(), TreasuryError> {
+    pub fn expire_dispute(env: Env, admin: Address, dispute_id: u64) -> Result<(), TreasuryError> {
         require_admin(&env, &admin);
         let mut dispute: Dispute = env
             .storage()
@@ -185,7 +181,7 @@ impl TreasuryContract {
         if claimant_bps > BPS_DENOMINATOR {
             soroban_sdk::panic_with_error!(env, TreasuryError::InvalidSplitRatio);
         }
-        let mut dispute: Dispute = env
+        let dispute: Dispute = env
             .storage()
             .persistent()
             .get(&DataKey::Dispute(dispute_id))
@@ -209,6 +205,16 @@ impl TreasuryContract {
         if counterparty_amount > 0 {
             token_client.transfer(&treasury, &dispute.counterparty, &counterparty_amount);
         }
+        let mut resolved = dispute.clone();
+        resolved.status = DisputeStatus::ResolvedSplit;
+        resolved.resolution_for_claimant = true;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Dispute(dispute_id), &resolved);
+        env.events().publish(
+            (Symbol::new(&env, "dispute_resolved_split"), dispute_id),
+            resolved,
+        );
         Ok(())
     }
 

@@ -27,7 +27,13 @@ enum TestError {
     Unauthorized,
 }
 
-fn setup() -> (Env, Address, Address, ComplianceContractClient<'static>, Address) {
+fn setup() -> (
+    Env,
+    Address,
+    Address,
+    ComplianceContractClient<'static>,
+    Address,
+) {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
