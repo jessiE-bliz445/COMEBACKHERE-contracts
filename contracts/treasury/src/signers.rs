@@ -2,12 +2,16 @@ use crate::{
     require_admin, DataKey, RotationStatus, SignerRotationProposal, TreasuryContract,
     TreasuryContractArgs, TreasuryContractClient, TreasuryError,
 };
-use multisig::{meets_threshold, record_approval, require_authorized_signer, signer_weight};
+use multisig::{
+    meets_threshold, record_approval, require_authorized_signer, require_weight_below_threshold,
+    signer_weight,
+};
 use soroban_sdk::{contractimpl, Address, Env, Symbol, Vec};
 
 #[contractimpl]
 impl TreasuryContract {
     /// Registers or updates the approval weight of `signer` (admin-only). Weight 0 deactivates the signer.
+    /// Errors: `SignerWeightExceedsThreshold` if `weight >= threshold`.
     /// Emits: `signer_weight_set`.
     pub fn set_signer(
         env: Env,
@@ -16,6 +20,12 @@ impl TreasuryContract {
         weight: u32,
     ) -> Result<(), TreasuryError> {
         require_admin(&env, &admin);
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .unwrap_or(1);
+        require_weight_below_threshold(&env, weight, threshold);
         env.storage()
             .instance()
             .set(&DataKey::Signer(signer.clone()), &weight);

@@ -3,6 +3,19 @@ use crate::{require_admin, require_not_paused, DataKey, TreasuryContract, Treasu
 use crate::{TreasuryContractArgs, TreasuryContractClient};
 use soroban_sdk::{contractimpl, token, Address, Env, Symbol, Vec};
 
+/// Enforces the configured withdrawal limit for a given recipient.
+/// Panics with `WithdrawalLimitExceeded` if `amount` exceeds the limit.
+fn enforce_withdrawal_limit(env: &Env, _recipient: &Address, amount: i128) {
+    let (limit, _window_secs): (i128, u64) = env
+        .storage()
+        .instance()
+        .get(&DataKey::WithdrawalLimitPerWindow)
+        .unwrap_or((0, 0));
+    if limit > 0 && amount > limit {
+        soroban_sdk::panic_with_error!(env, TreasuryError::WithdrawalLimitExceeded);
+    }
+}
+
 #[contractimpl]
 impl TreasuryContract {
     /// Deposits `amount` tokens from `from` into the treasury via `token_contract`.
@@ -140,7 +153,7 @@ fn deposit_one(env: &Env, from: &Address, token_contract: &Address, amount: i128
         .ok_or(TreasuryError::ArithmeticOverflow)?;
     env.storage()
         .persistent()
-        .set(&DataKey::Balance(from.clone()), &balance);
+        .set(&DataKey::Balance(from.clone(), token_contract.clone()), &balance);
     env.events()
         .publish((Symbol::new(env, "deposit"), from.clone()), amount);
     Ok(())

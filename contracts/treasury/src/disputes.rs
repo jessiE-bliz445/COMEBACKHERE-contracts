@@ -157,6 +157,7 @@ impl TreasuryContract {
         env.events()
             .publish((Symbol::new(&env, "dispute_resolved"), dispute_id), dispute);
         release_settlement_hold_if_no_open_disputes(&env, settlement_id);
+        Ok(())
     }
 
     /// Resolves an open dispute by splitting `dispute.amount` between claimant and
@@ -178,7 +179,7 @@ impl TreasuryContract {
         dispute_id: u64,
         claimant_bps: u32,
         token_contract: Address,
-    ) {
+    ) -> Result<(), TreasuryError> {
         require_admin(&env, &admin);
         require_not_paused(&env);
         if claimant_bps > BPS_DENOMINATOR {
