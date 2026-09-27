@@ -87,6 +87,10 @@ impl ComplianceGatedSettlement {
 struct TestContext {
     env: Env,
     admin: Address,
+    /// Second signer used to reach treasury quorum. The #622 weight cap forbids
+    /// any single signer from holding weight >= the threshold, so quorum here is
+    /// reached by the admin proposing and the cosigner co-approving.
+    cosigner: Address,
     merchant: Address,
     treasury_id: Address,
     compliance_id: Address,
@@ -99,6 +103,7 @@ fn setup() -> TestContext {
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
+    let cosigner = Address::generate(&env);
     let merchant = Address::generate(&env);
 
     // Deploy compliance contract
@@ -106,11 +111,14 @@ fn setup() -> TestContext {
     let compliance_admin = ComplianceContractClient::new(&env, &compliance_id);
     compliance_admin.initialize(&admin);
 
-    // Deploy treasury contract
+    // Deploy treasury contract.
+    // #622 weight cap: threshold 2 with every signer at weight 1, so no single
+    // signer can approve alone. `initialize` also seeds the admin at weight 1.
     let treasury_id = env.register_contract(None, TreasuryContract);
     let treasury = TreasuryContractClient::new(&env, &treasury_id);
-    treasury.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
-    treasury.set_signer(&admin, &admin, &2);
+    let mut signers = soroban_sdk::Vec::new(&env);
+    signers.push_back((cosigner.clone(), 1u32));
+    treasury.initialize(&admin, &2, &signers);
 
     // Deploy test token
     let token_id = env.register_contract(None, TestToken);
@@ -124,6 +132,7 @@ fn setup() -> TestContext {
     TestContext {
         env,
         admin,
+        cosigner,
         merchant,
         treasury_id,
         compliance_id,
@@ -150,6 +159,9 @@ fn settlement_proceeds_when_compliance_passing_via_compliance_client() {
 
     // Create settlement
     let settlement_id = treasury.propose_settlement(&ctx.admin, &ctx.merchant, &10_000_000);
+    // #622 weight cap: the admin cannot reach quorum alone, so the cosigner
+    // co-approves before the compliance-gated workflow executes.
+    treasury.approve_settlement(&ctx.cosigner, &settlement_id);
 
     // Fund treasury
     token.mint(&ctx.treasury_id, &10_000_000);
@@ -185,6 +197,9 @@ fn settlement_rejected_when_merchant_not_allowed_via_compliance_client() {
 
     // Merchant is NOT allowed (default-deny)
     let settlement_id = treasury.propose_settlement(&ctx.admin, &ctx.merchant, &10_000_000);
+    // #622 weight cap: the admin cannot reach quorum alone, so the cosigner
+    // co-approves before the compliance-gated workflow executes.
+    treasury.approve_settlement(&ctx.cosigner, &settlement_id);
 
     token.mint(&ctx.treasury_id, &10_000_000);
 
@@ -224,6 +239,9 @@ fn settlement_rejected_when_merchant_blocked_via_compliance_client() {
     assert!(!compliance.is_allowed(&ctx.merchant));
 
     let settlement_id = treasury.propose_settlement(&ctx.admin, &ctx.merchant, &10_000_000);
+    // #622 weight cap: the admin cannot reach quorum alone, so the cosigner
+    // co-approves before the compliance-gated workflow executes.
+    treasury.approve_settlement(&ctx.cosigner, &settlement_id);
 
     token.mint(&ctx.treasury_id, &10_000_000);
 
@@ -260,6 +278,9 @@ fn settlement_proceeds_with_temp_allow_via_compliance_client() {
     assert!(compliance.is_allowed(&ctx.merchant));
 
     let settlement_id = treasury.propose_settlement(&ctx.admin, &ctx.merchant, &10_000_000);
+    // #622 weight cap: the admin cannot reach quorum alone, so the cosigner
+    // co-approves before the compliance-gated workflow executes.
+    treasury.approve_settlement(&ctx.cosigner, &settlement_id);
 
     token.mint(&ctx.treasury_id, &10_000_000);
 
@@ -294,6 +315,9 @@ fn settlement_rejected_when_temp_allow_expired_via_compliance_client() {
     assert!(!compliance.is_allowed(&ctx.merchant));
 
     let settlement_id = treasury.propose_settlement(&ctx.admin, &ctx.merchant, &10_000_000);
+    // #622 weight cap: the admin cannot reach quorum alone, so the cosigner
+    // co-approves before the compliance-gated workflow executes.
+    treasury.approve_settlement(&ctx.cosigner, &settlement_id);
 
     token.mint(&ctx.treasury_id, &10_000_000);
 

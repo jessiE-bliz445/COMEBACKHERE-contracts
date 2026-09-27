@@ -4,15 +4,20 @@ use treasury::{SettlementStatus, TreasuryContract, TreasuryContractClient};
 fn setup(env: &Env, total: i128) -> (TreasuryContractClient, Address, Address, u64) {
     let admin = Address::generate(env);
     let merchant = Address::generate(env);
+    let cosigner = Address::generate(env);
     let contract_id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(env, &contract_id);
-    // threshold=1, admin weight=1 → admin approval alone is sufficient
-    client.initialize(&admin, &1, &soroban_sdk::Vec::new(env));
+    // #622 weight cap: quorum is 2 and no single signer may reach it, so the
+    // admin proposes (weight 1) and the cosigner co-approves.
+    let mut signers: soroban_sdk::Vec<(Address, u32)> = soroban_sdk::Vec::new(env);
+    signers.push_back((cosigner.clone(), 1u32));
+    client.initialize(&admin, &2, &signers);
 
     let token_id = env.register_stellar_asset_contract(admin.clone());
     soroban_sdk::token::StellarAssetClient::new(env, &token_id).mint(&contract_id, &total);
 
     let sid = client.propose_settlement(&admin, &merchant, &total);
+    client.approve_settlement(&cosigner, &sid);
     (client, admin, token_id, sid)
 }
 
@@ -127,12 +132,16 @@ fn partial_settlement_full_sequence() {
 
     let contract_id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(&env, &contract_id);
-    client.initialize(&admin, &1, &soroban_sdk::Vec::new(&env));
+    client.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
 
     let token_id = env.register_stellar_asset_contract(admin.clone());
     soroban_sdk::token::StellarAssetClient::new(&env, &token_id).mint(&contract_id, &total);
 
     let sid = client.propose_settlement(&admin, &merchant, &total);
+    // #622 weight cap: quorum of 2 needs a second signer.
+    let cosigner = Address::generate(&env);
+    client.set_signer(&admin, &cosigner, &1);
+    client.approve_settlement(&cosigner, &sid);
 
     client.partially_execute_settlement(&admin, &sid, &partial_amount, &token_id);
 

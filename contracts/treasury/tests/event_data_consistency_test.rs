@@ -59,10 +59,14 @@ fn settlement_executed_event_data_matches_storage_at_emission() {
     let merchant = Address::generate(&env);
     let treasury_id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(&env, &treasury_id);
-    client.initialize(&admin, &1, &soroban_sdk::Vec::new(&env));
+    client.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
     let token_id = env.register_contract(None, FakeToken);
 
     let sid = client.propose_settlement(&admin, &merchant, &10_000_000);
+    // #622 weight cap: quorum of 2 needs a second signer.
+    let cosigner = Address::generate(&env);
+    client.set_signer(&admin, &cosigner, &1);
+    client.approve_settlement(&cosigner, &sid);
     client.execute_settlement(&admin, &sid, &token_id);
 
     assert_eq!(
@@ -97,13 +101,18 @@ fn settlement_executed_event_data_matches_storage_for_each_of_several_settlement
     let admin = Address::generate(&env);
     let treasury_id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(&env, &treasury_id);
-    client.initialize(&admin, &1, &soroban_sdk::Vec::new(&env));
+    client.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
     let token_id = env.register_contract(None, FakeToken);
 
     let merchant_a = Address::generate(&env);
     let merchant_b = Address::generate(&env);
     let sid_a = client.propose_settlement(&admin, &merchant_a, &1_000_000);
     let sid_b = client.propose_settlement(&admin, &merchant_b, &2_000_000);
+    // #622 weight cap: quorum of 2 needs a second signer.
+    let cosigner = Address::generate(&env);
+    client.set_signer(&admin, &cosigner, &1);
+    client.approve_settlement(&cosigner, &sid_a);
+    client.approve_settlement(&cosigner, &sid_b);
 
     client.execute_settlement(&admin, &sid_a, &token_id);
     let event_a = Settlement::try_from_val(&env, &last_event_data(&env)).unwrap();
@@ -157,7 +166,10 @@ fn invoice_created_event_data_matches_storage_at_emission() {
         &MaybeAddress::None,
     );
 
-    assert_eq!(last_event_symbol(&env), Symbol::new(&env, "invoice_created"));
+    assert_eq!(
+        last_event_symbol(&env),
+        Symbol::new(&env, "invoice_created")
+    );
     let event_invoice = Invoice::try_from_val(&env, &last_event_data(&env)).unwrap();
 
     let env2 = env.clone();
@@ -186,7 +198,10 @@ fn address_blocked_event_data_matches_storage_at_emission() {
 
     client.block_address(&admin, &subject, &None);
 
-    assert_eq!(last_event_symbol(&env), Symbol::new(&env, "address_blocked"));
+    assert_eq!(
+        last_event_symbol(&env),
+        Symbol::new(&env, "address_blocked")
+    );
     let event_address = Address::try_from_val(&env, &last_event_data(&env)).unwrap();
 
     let env2 = env.clone();

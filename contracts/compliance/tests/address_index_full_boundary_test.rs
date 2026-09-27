@@ -45,7 +45,11 @@ fn setup() -> (Env, Address, ComplianceContractClient<'static>) {
 /// Fills the address index to exactly `MAX_TRACKED_ADDRESSES` distinct, newly
 /// generated addresses via `allow_address`, asserting every single call
 /// succeeds (i.e. the cap does not reject the boundary entry itself).
-fn fill_index_to_cap(env: &Env, admin: &Address, client: &ComplianceContractClient<'static>) -> Vec<Address> {
+fn fill_index_to_cap(
+    env: &Env,
+    admin: &Address,
+    client: &ComplianceContractClient<'static>,
+) -> Vec<Address> {
     let mut addresses = Vec::with_capacity(MAX_TRACKED_ADDRESSES as usize);
     for i in 0..MAX_TRACKED_ADDRESSES {
         let address = Address::generate(env);
@@ -99,7 +103,8 @@ fn new_distinct_address_beyond_cap_is_rejected_with_address_index_full() {
     assert_eq!(block_result, Err(Ok(ContractError::AddressIndexFull)));
 
     let overflow_address_3 = Address::generate(&env);
-    let allow_until_result = client.try_allow_address_until(&admin, &overflow_address_3, &1_000_000);
+    let allow_until_result =
+        client.try_allow_address_until(&admin, &overflow_address_3, &1_000_000);
     assert_eq!(allow_until_result, Err(Ok(ContractError::AddressIndexFull)));
 }
 

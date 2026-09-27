@@ -65,10 +65,14 @@ fn weighted_signer_duplicate_approval_does_not_double_count_weight() {
     let merchant = Address::generate(&env);
     let contract_id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(&env, &contract_id);
-    client.initialize(&admin, &3, &soroban_sdk::Vec::new(&env));
+    // #622 weight cap: no single signer may hold weight >= the threshold, so the
+    // threshold is raised to 6 to keep the heavy signer's weight of 5 as
+    // "large relative to the other signers" while staying under the cap. The
+    // test's intent — a duplicate approval must not double-count — is unchanged.
+    client.initialize(&admin, &6, &soroban_sdk::Vec::new(&env));
 
-    // Register a signer with weight 5 — above-threshold weight to make the
-    // double-count scenario meaningful.
+    // Register a signer with weight 5 — high weight to make the double-count
+    // scenario meaningful.
     let heavy = Address::generate(&env);
     client.set_signer(&admin, &heavy, &5);
 
