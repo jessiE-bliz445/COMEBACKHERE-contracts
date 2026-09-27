@@ -47,7 +47,7 @@ fn deposit_withdraw_roundtrip() {
 
     let treasury_id = env.register_contract(None, TreasuryContract);
     let treasury_client = TreasuryContractClient::new(&env, &treasury_id);
-    treasury_client.initialize(&admin, &1, &soroban_sdk::Vec::new(&env));
+    treasury_client.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
 
     let token_id = env.register_contract(None, TestToken);
     let test_token_client = TestTokenClient::new(&env, &token_id);
@@ -86,7 +86,7 @@ fn withdraw_all_drains_treasury_when_paused() {
 
     let treasury_id = env.register_contract(None, TreasuryContract);
     let treasury_client = TreasuryContractClient::new(&env, &treasury_id);
-    treasury_client.initialize(&admin, &1, &Vec::new(&env));
+    treasury_client.initialize(&admin, &2, &Vec::new(&env));
 
     let token_id = env.register_contract(None, TestToken);
     let test_token_client = TestTokenClient::new(&env, &token_id);
@@ -111,7 +111,7 @@ fn batch_deposit_transfers_multiple_tokens_to_treasury() {
 
     let treasury_id = env.register_contract(None, TreasuryContract);
     let treasury_client = TreasuryContractClient::new(&env, &treasury_id);
-    treasury_client.initialize(&admin, &1, &Vec::new(&env));
+    treasury_client.initialize(&admin, &2, &Vec::new(&env));
 
     let usdc_id = env.register_contract(None, TestToken);
     let eurc_id = env.register_contract(None, TestToken);
@@ -142,7 +142,7 @@ fn batch_deposit_rejects_invalid_amount() {
     let depositor = Address::generate(&env);
     let treasury_id = env.register_contract(None, TreasuryContract);
     let treasury_client = TreasuryContractClient::new(&env, &treasury_id);
-    treasury_client.initialize(&admin, &1, &Vec::new(&env));
+    treasury_client.initialize(&admin, &2, &Vec::new(&env));
 
     let token_id = env.register_contract(None, TestToken);
     let mut deposits = Vec::new(&env);
@@ -162,7 +162,7 @@ fn get_balance_reflects_deposits_and_withdrawals() {
 
     let treasury_id = env.register_contract(None, TreasuryContract);
     let treasury_client = TreasuryContractClient::new(&env, &treasury_id);
-    treasury_client.initialize(&admin, &1, &soroban_sdk::Vec::new(&env));
+    treasury_client.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
 
     let token_id = env.register_contract(None, TestToken);
     let test_token_client = TestTokenClient::new(&env, &token_id);
@@ -182,7 +182,10 @@ fn get_balance_reflects_deposits_and_withdrawals() {
     treasury_client.withdraw(&depositor, &token_id, &partial);
 
     // Verify balance after withdrawal
-    assert_eq!(treasury_client.get_balance(&depositor, &token_id), amount - partial);
+    assert_eq!(
+        treasury_client.get_balance(&depositor, &token_id),
+        amount - partial
+    );
 
     // Verify unrelated address still has 0 balance
     let stranger = Address::generate(&env);

@@ -42,7 +42,7 @@ fn setup_treasury(env: &Env) -> (TreasuryContractClient, Address, Address, Addre
     let merchant = Address::generate(env);
     let treasury_id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(env, &treasury_id);
-    client.initialize(&admin, &1, &soroban_sdk::Vec::new(env));
+    client.initialize(&admin, &2, &soroban_sdk::Vec::new(env));
     (client, admin, merchant, treasury_id)
 }
 

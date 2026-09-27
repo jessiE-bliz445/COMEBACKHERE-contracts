@@ -36,6 +36,12 @@ impl TreasuryContract {
             return Err(TreasuryError::ZeroThreshold);
         }
         admin.require_auth();
+        // Validate that no initial signer weight meets or exceeds the threshold.
+        for (_signer, weight) in signers.iter() {
+            if weight >= threshold {
+                return Err(TreasuryError::SignerWeightExceedsThreshold);
+            }
+        }
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()

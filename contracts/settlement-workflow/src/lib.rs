@@ -1,10 +1,16 @@
 #![no_std]
 
 use compliance_client::ComplianceClient;
-use multisig::TreasuryError;
+pub use multisig::Settlement;
+pub use multisig::SettlementStatus;
+pub use multisig::TreasuryError;
 use soroban_sdk::{
     contract, contractclient, contractimpl, contracttype, Address, Env, Symbol, Vec,
 };
+
+/// Error type returned by `execute_with_compliance`.
+/// Alias for `TreasuryError` to match the naming convention used in tests.
+pub type SettlementWorkflowError = TreasuryError;
 
 /// Cross-contract call surface this crate needs from the treasury contract.
 /// `#[contractclient]` on a bare trait generates only an invocation client, not
@@ -16,23 +22,46 @@ use soroban_sdk::{
 pub trait TreasuryInterface {
     fn execute_settlement(env: Env, signer: Address, settlement_id: u64, token_contract: Address);
     fn get_signer_weight(env: Env, signer: Address) -> u32;
+    /// Read-only settlement lookup. `#[contractimpl]` also generates a
+    /// `try_get_settlement` client variant that never mutates state.
+    fn get_settlement(env: Env, settlement_id: u64) -> Settlement;
 }
 
-/// Storage key for the ordered list of settlement IDs executed through this
-/// workflow contract (as opposed to executed directly against treasury, bypassing
-/// the compliance gate). See `get_executed_settlement_ids_page` (#373).
+/// Why a simulated settlement would not succeed, mirroring the checks in
+/// [`SettlementWorkflowContract::execute_with_compliance`].
 #[contracttype]
-pub enum DataKey {
-    ExecutedSettlements,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SimulationFailure {
+    /// `Compliance::is_allowed(merchant)` returned false.
+    ComplianceCheckFailed,
+    /// The settlement is not in a state treasury would execute (unknown ID,
+    /// already executed, or on hold).
+    TreasuryWouldReject,
 }
 
-/// Instance-storage keys for the workflow's pinned configuration. The compliance
-/// and treasury instances are set once at initialization (#364) so the contract
-/// enforces which instances it trusts rather than trusting whatever a caller
-/// supplies per-call.
+/// Outcome of [`SettlementWorkflowContract::simulate_with_compliance`].
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SimulationResult {
+    /// Every check the execution path runs would pass.
+    WouldSucceed,
+    /// Execution would fail, and this is the check that would fail first.
+    WouldFail(SimulationFailure),
+}
+
+/// Storage keys for the settlement workflow contract.
+///
+/// `ExecutedSettlements` tracks the ordered list of settlement IDs executed through
+/// this workflow contract (as opposed to executed directly against treasury, bypassing
+/// the compliance gate). See `get_executed_settlement_ids_page` (#373).
+///
+/// `ComplianceId` and `TreasuryId` are the pinned configuration set once at
+/// initialization (#364) so the contract enforces which instances it trusts rather
+/// than trusting whatever a caller supplies per-call.
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
+    ExecutedSettlements,
     ComplianceId,
     TreasuryId,
 }
@@ -111,6 +140,52 @@ impl SettlementWorkflowContract {
             (merchant.clone(), token_contract.clone()),
         );
         Ok(())
+    }
+
+    /// Read-only preview of [`Self::execute_with_compliance`] (#618).
+    ///
+    /// Performs no state changes and emits no events, so operators and frontends
+    /// can tell whether a settlement will pass compliance before submitting it
+    /// and avoid a failed transaction.
+    ///
+    /// The compliance leg calls the *same*
+    /// [`ComplianceClient::require_allowed_for_treasury`] that
+    /// `execute_with_compliance` calls, so the two cannot drift. The treasury
+    /// leg uses the read-only `try_get_settlement` rather than
+    /// `try_execute_settlement`, because the latter actually settles the
+    /// payout when its checks pass — that would make a "dry run" mutate state.
+    ///
+    /// Because quorum and treasury pause state are not readable from here, a
+    /// [`SimulationResult::WouldSucceed`] means "the compliance gate passes and
+    /// the settlement exists in an executable status"; it does not guarantee
+    /// quorum. Execution can still fail with a treasury error such as
+    /// `ThresholdNotMet`. The negative results, which is what callers use this
+    /// for, are exact.
+    pub fn simulate_with_compliance(
+        env: Env,
+        settlement_id: u64,
+        _token_contract: Address,
+        merchant: Address,
+    ) -> SimulationResult {
+        let compliance = ComplianceClient::new(&env, &Self::compliance_id(&env));
+        if compliance.require_allowed_for_treasury(&merchant).is_err() {
+            return SimulationResult::WouldFail(SimulationFailure::ComplianceCheckFailed);
+        }
+        let treasury = TreasuryOnlyClient::new(&env, &Self::treasury_id(&env));
+        // `#[contractclient]` wraps the generated `try_get_settlement` client call
+        // around the host invocation, hence the nested `Result`.
+        let lookup = treasury.try_get_settlement(&settlement_id);
+        match lookup {
+            Ok(Ok(ref s)) if Self::is_executable_status(s) => SimulationResult::WouldSucceed,
+            _ => SimulationResult::WouldFail(SimulationFailure::TreasuryWouldReject),
+        }
+    }
+
+    /// Whether treasury's `execute_settlement` would accept a settlement in this
+    /// status. Mirrors the status guards in `Treasury::execute_settlement`, and
+    /// is shared by the dry run so the two agree.
+    fn is_executable_status(settlement: &Settlement) -> bool {
+        settlement.status == SettlementStatus::Pending
     }
 
     /// Batch variant of `execute_with_compliance` (#367). Runs the shared compliance

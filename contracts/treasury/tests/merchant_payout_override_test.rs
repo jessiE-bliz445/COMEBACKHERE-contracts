@@ -102,7 +102,7 @@ fn execute_settlement_uses_merchant_payout_override() {
 
     let treasury_id = env.register_contract(None, TreasuryContract);
     let treasury_client = TreasuryContractClient::new(&env, &treasury_id);
-    treasury_client.initialize(&admin, &1, &soroban_sdk::Vec::new(&env));
+    treasury_client.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
 
     let token_id = env.register_contract(None, TestToken);
     let test_token_client = TestTokenClient::new(&env, &token_id);
@@ -115,6 +115,10 @@ fn execute_settlement_uses_merchant_payout_override() {
 
     // Propose and execute settlement
     let settlement_id = treasury_client.propose_settlement(&admin, &merchant, &10_000_000);
+    // #622 weight cap: quorum of 2 needs a second signer.
+    let cosigner = Address::generate(&env);
+    treasury_client.set_signer(&admin, &cosigner, &1);
+    treasury_client.approve_settlement(&cosigner, &settlement_id);
     treasury_client.execute_settlement(&admin, &settlement_id, &token_id);
 
     // Verify tokens were sent to payout override, not merchant
@@ -140,11 +144,11 @@ fn non_merchant_cannot_update_another_merchants_payout_address() {
             invoke: &MockAuthInvoke {
                 contract: &treasury_id,
                 fn_name: "initialize",
-                args: (admin.clone(), 1u32, signers.clone()).into_val(&env),
+                args: (admin.clone(), 2u32, signers.clone()).into_val(&env),
                 sub_invokes: &[],
             },
         }])
-        .initialize(&admin, &1, &signers);
+        .initialize(&admin, &2, &signers);
 
     // Attacker tries to update merchant's payout address — should fail because
     // no one (attacker included) has provided the merchant's authorization.
@@ -164,7 +168,7 @@ fn reentrant_payout_address_change_does_not_redirect_mid_settlement() {
 
     let treasury_id = env.register_contract(None, TreasuryContract);
     let treasury_client = TreasuryContractClient::new(&env, &treasury_id);
-    treasury_client.initialize(&admin, &1, &soroban_sdk::Vec::new(&env));
+    treasury_client.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
 
     // Register a malicious token contract
     let token_id = env.register_contract(None, MaliciousToken);

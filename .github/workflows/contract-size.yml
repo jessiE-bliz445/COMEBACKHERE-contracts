@@ -36,6 +36,15 @@ jobs:
           path: target
           key: ${{ runner.os }}-contract-size-${{ hashFiles('Cargo.lock') }}
 
+      - name: Build contracts to WASM
+        run: |
+          set -e
+          # The cache is keyed on Cargo.lock, so a cache hit restores a
+          # previously built target/ but a miss (any dependency change) leaves it
+          # empty. Build explicitly so the size glob below always has wasm files
+          # to measure, instead of failing with "Failed opening '*.wasm'".
+          cargo build --workspace --target wasm32-unknown-unknown --release
+
       - name: Install wasm-opt
         run: sudo apt-get update && sudo apt-get install -y binaryen
 

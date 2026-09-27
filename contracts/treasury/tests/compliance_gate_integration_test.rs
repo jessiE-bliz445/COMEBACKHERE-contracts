@@ -113,7 +113,7 @@ fn setup() -> (
 
     let treasury_id = env.register_contract(None, TreasuryContract);
     let treasury = TreasuryContractClient::new(&env, &treasury_id);
-    treasury.initialize(&admin, &1, &soroban_sdk::Vec::new(&env));
+    treasury.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
 
     let token_id = env.register_contract(None, TestTokenContract);
     (
@@ -245,6 +245,10 @@ fn blocked_merchant_rejected_even_when_already_settled() {
     compliance.allow_address(&admin, &merchant);
 
     let settlement_id = treasury.propose_settlement(&admin, &merchant, &10_000_000);
+    // #622 weight cap: the admin's single vote is below quorum.
+    let cosigner = Address::generate(&env);
+    treasury.set_signer(&admin, &cosigner, &1);
+    treasury.approve_settlement(&cosigner, &settlement_id);
 
     let token = TestTokenContractClient::new(&env, &token_id);
     token.mint(&treasury_id, &10_000_000);

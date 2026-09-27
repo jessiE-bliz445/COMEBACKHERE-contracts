@@ -13,6 +13,24 @@ and this crate adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 ---
 
+## [0.3.0] — Signer weight cap (#622)
+
+### Added
+
+- New `TreasuryError::SignerWeightExceedsThreshold` variant (discriminant 35).
+- New `require_weight_below_threshold(env, weight, threshold)` helper function that
+  panics with `SignerWeightExceedsThreshold` if `weight >= threshold`. This prevents
+  a single signer from having enough weight to approve alone, which would defeat
+  the purpose of a multisig.
+
+### Changed
+
+- `contracts/treasury` now calls `require_weight_below_threshold` in `set_signer`
+  and `initialize` to reject configurations where a signer's weight meets or exceeds
+  the threshold.
+
+---
+
 ## [0.2.0] — Treasury WASM-size fix
 
 ### Context

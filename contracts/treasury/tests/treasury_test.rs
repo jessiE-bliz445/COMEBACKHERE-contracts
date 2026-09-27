@@ -244,7 +244,7 @@ fn pause_and_unpause_emit_events() {
     let merchant = Address::generate(&env);
     let id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(&env, &id);
-    client.initialize(&admin, &1, &soroban_sdk::Vec::new(&env));
+    client.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
     client.pause(&admin);
     client.unpause(&admin);
     // after unpause, proposals work again
@@ -273,7 +273,7 @@ fn test_initialize_rejects_reinit() {
     let admin = Address::generate(&env);
     let id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(&env, &id);
-    client.initialize(&admin, &1, &soroban_sdk::Vec::new(&env));
+    client.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
     assert!(client
         .try_initialize(&admin, &2, &soroban_sdk::Vec::new(&env))
         .is_err());

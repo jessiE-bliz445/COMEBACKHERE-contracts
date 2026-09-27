@@ -25,7 +25,7 @@ fn setup_with_interspersed_executions<'a>(
     let admin = Address::generate(env);
     let contract_id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(env, &contract_id);
-    client.initialize(&admin, &1, &soroban_sdk::Vec::new(env));
+    client.initialize(&admin, &2, &soroban_sdk::Vec::new(env));
 
     let token_id = env.register_stellar_asset_contract(admin.clone());
     soroban_sdk::token::StellarAssetClient::new(env, &token_id).mint(&contract_id, &1_000_000_000);

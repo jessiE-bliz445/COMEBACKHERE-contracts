@@ -46,6 +46,12 @@ pub enum TreasuryError {
     // gives a first-time deployer no hint that the fix is a `set_signer` call for
     // the workflow's own address.
     WorkflowNotRegisteredSigner = 34,
+    // A single signer's weight must be strictly below the threshold so that no
+    // single signer can approve alone (see #622).
+    SignerWeightExceedsThreshold = 35,
+    InvalidSplitRatio = 36,
+    ForceCancelNotAllowed = 37,
+    WithdrawalLimitExceeded = 38,
 }
 
 // Issue #48: reason codes attached to a held settlement; None means not on hold
@@ -297,6 +303,32 @@ pub fn record_approval(
 /// ```
 pub fn meets_threshold(weight: u32, threshold: u32) -> bool {
     weight >= threshold
+}
+
+/// Requires that `weight` is strictly below `threshold`, preventing a single signer
+/// from having enough weight to approve alone (see #622).
+///
+/// Panics: `SignerWeightExceedsThreshold` if `weight >= threshold`.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use soroban_sdk::{Address, Env};
+/// use multisig::require_weight_below_threshold;
+///
+/// # let env: Env = unimplemented!();
+/// # let weight: u32 = 1;
+/// # let threshold: u32 = 2;
+/// // Weight 1 is below threshold 2 — OK.
+/// require_weight_below_threshold(&env, weight, threshold);
+///
+/// // Weight 2 >= threshold 2 — panics with SignerWeightExceedsThreshold.
+/// // require_weight_below_threshold(&env, 2, threshold);
+/// ```
+pub fn require_weight_below_threshold(env: &Env, weight: u32, threshold: u32) {
+    if weight >= threshold {
+        soroban_sdk::panic_with_error!(env, TreasuryError::SignerWeightExceedsThreshold);
+    }
 }
 
 #[cfg(feature = "testutils")]

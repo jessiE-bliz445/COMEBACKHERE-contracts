@@ -34,8 +34,13 @@ fn bench_approval_set(signer_count: u32) -> u32 {
     let admin = Address::generate(&env);
     let contract_id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(&env, &contract_id);
-    client.initialize(&admin, &signer_count, &soroban_sdk::Vec::new(&env));
-    client.set_signer(&admin, &admin, &signer_count); // admin carries full weight
+    // #622 weight cap: the admin's weight must stay strictly below the
+    // threshold, so the threshold is raised to signer_count + 1 while the admin
+    // still carries `signer_count` weight. This benchmark measures weight
+    // accumulation, not quorum bypass, so the extra headroom does not affect
+    // what it asserts.
+    client.initialize(&admin, &(signer_count + 1), &soroban_sdk::Vec::new(&env));
+    client.set_signer(&admin, &admin, &signer_count);
 
     let merchant = Address::generate(&env);
     let settlement_id = client.propose_settlement(&admin, &merchant, &10_000_000);
@@ -51,7 +56,8 @@ fn bench_large_signer_proposal(signer_count: u32) -> u64 {
     let admin = Address::generate(&env);
     let contract_id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(&env, &contract_id);
-    client.initialize(&admin, &signer_count, &soroban_sdk::Vec::new(&env));
+    // #622 weight cap: keep the admin's weight strictly below the threshold.
+    client.initialize(&admin, &(signer_count + 1), &soroban_sdk::Vec::new(&env));
     client.set_signer(&admin, &admin, &signer_count);
 
     let signers = register_signers(&client, &admin, &env, signer_count - 1);
@@ -106,6 +112,7 @@ fn bench_large_signer_set_proposal_and_approval() {
     let admin = Address::generate(&env);
     let contract_id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(&env, &contract_id);
+    // #622 weight cap: admin weight (signer_count / 2) stays below threshold.
     client.initialize(&admin, &signer_count, &soroban_sdk::Vec::new(&env));
     client.set_signer(&admin, &admin, &(signer_count / 2));
 
@@ -143,7 +150,9 @@ fn bench_large_signer_set_get_all_signers() {
     let admin = Address::generate(&env);
     let contract_id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(&env, &contract_id);
-    client.initialize(&admin, &1, &soroban_sdk::Vec::new(&env));
+    // #622 weight cap: `initialize` seeds the admin at weight 1, so the
+    // threshold must be at least 2 for that seed weight to be valid.
+    client.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
 
     // Register 100 signers
     for _ in 0..100 {
@@ -164,6 +173,8 @@ fn bench_duplicate_approval_does_not_double_count() {
     let admin = Address::generate(&env);
     let contract_id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(&env, &contract_id);
+    // #622 weight cap: admin weight 2 must stay below the threshold, so the
+    // threshold is 3 rather than 2.
     client.initialize(&admin, &3, &soroban_sdk::Vec::new(&env));
     client.set_signer(&admin, &admin, &2);
 
