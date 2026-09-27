@@ -77,8 +77,7 @@ fn compliance_block_overrides_a_previously_set_allow() {
 
     // The compliance admin's block must win over the earlier allow, otherwise a
     // stale allow could be used to receive funds after a block.
-    s.compliance
-        .block_address(&s.admin, &s.merchant, &None);
+    s.compliance.block_address(&s.admin, &s.merchant, &None);
     assert!(!s.compliance.is_allowed(&s.merchant));
     assert!(s.compliance.is_blocked(&s.merchant));
 }
@@ -88,8 +87,7 @@ fn clearing_a_block_restores_the_previous_allow() {
     let s = setup(true);
 
     s.compliance.allow_address(&s.admin, &s.merchant);
-    s.compliance
-        .block_address(&s.admin, &s.merchant, &None);
+    s.compliance.block_address(&s.admin, &s.merchant, &None);
     assert!(!s.compliance.is_allowed(&s.merchant));
 
     // `clear_address` is the documented recovery path off the blocklist.
